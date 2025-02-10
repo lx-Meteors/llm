@@ -77,8 +77,8 @@ print(f"QWen size: {model_size / 1000**2:.1f}M parameters")
 args = TrainingArguments(
     output_dir=pretrain_args.model_save_dir,
     per_device_train_batch_size=1,
-    per_device_eval_batch_size=4,
-    gradient_accumulation_steps=10,
+    per_device_eval_batch_size=1,
+    gradient_accumulation_steps=1,
     num_train_epochs=1,
     weight_decay=0.1,
     ddp_find_unused_parameters=False,

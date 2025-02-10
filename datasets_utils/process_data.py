@@ -45,4 +45,26 @@ def wiki_generate(origin_file, output_file="../datasets/wiki.parquet"):
         data_page_size=50000
     )
 
-wiki_generate("/mnt/zhaorunsong/lx/My-LLM/data/wikipedia-cn-20230720-filtered.json")
+def gen_aplca_sft(origin_file, output_file):
+    lines = []
+    with open(origin_file, "r", encoding="utf-8") as f:
+        items = ujson.load(f)
+
+        for item in items:
+            if "output" not in item.keys():
+                continue
+            txt = f"{item['instruction']}{item['output']}"
+            if len(txt) == 0 or len(txt) > 512:
+                continue
+            lines.append(item)
+    # print(lines[0])
+    tb = pa.Table.from_pylist(lines)
+    pq.write_table(
+        table=tb,
+        where=output_file,
+        row_group_size=20480,
+        data_page_size=20480,
+    )
+
+gen_aplca_sft("/mnt/zhaorunsong/lx/My-LLM/data/alpaca_gpt4_data_zh.json","/mnt/zhaorunsong/lx/My-LLM/datasets/alpaca.parquet")
+# wiki_generate("/mnt/zhaorunsong/lx/My-LLM/data/wikipedia-cn-20230720-filtered.json")
