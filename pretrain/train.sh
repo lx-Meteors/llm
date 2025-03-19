@@ -1,1 +1,0 @@
-accelerate launch --multi_gpu --num_processes=4 --main_process_port 29513 pre_train.py
