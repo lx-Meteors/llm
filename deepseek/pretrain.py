@@ -50,7 +50,7 @@ for name, param in deepseek.named_parameters():
         continue
     param.requires_grad = False
 
-# 开始训练
+# 开始训练!
 trainer = Trainer(
     model=deepseek,
     args=training_args,
