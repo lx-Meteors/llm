@@ -6,7 +6,7 @@ from transformers import AutoTokenizer, TrainingArguments, AutoModelForCausalLM,
 from peft import LoraConfig, get_peft_model
 class SFTArguments():
     model_name = "/openbayes/input/input0/DeepSeek-R1-Distill-Qwen-1.5B"
-    sft_lora_path = "/openbayes/home/opentest/deepseek/sft_test_results/checkpoint-30000/adapter_model.safetensors"
+    sft_lora_path = "/openbayes/home/opentest/deepseek_hf/sft_test_results/checkpoint-30000/adapter_model.safetensors"
 
 args = SFTArguments()
 tokenizer = AutoTokenizer.from_pretrained(args.model_name)

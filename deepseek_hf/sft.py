@@ -10,7 +10,7 @@ from peft import LoraConfig, get_peft_model
 class SFTArguments():
     model_name = "/openbayes/input/input0/DeepSeek-R1-Distill-Qwen-1.5B"
     train_data_path = "/openbayes/home/opentest/data/chat_dataset.json"
-    pretrain_lora_path = "/openbayes/home/opentest/deepseek/results/checkpoint-30000/adapter_model.safetensors"
+    pretrain_lora_path = "/openbayes/home/opentest/deepseek_hf/results/checkpoint-30000/adapter_model.safetensors"
 
 
 args = SFTArguments()
