@@ -5,6 +5,7 @@ from typing import Dict
 from datasets import load_dataset, Dataset
 from datasets import Dataset, load_dataset
 from peft import LoraConfig, TaskType
+from safetensors.torch import load_file
 from transformers import TrainingArguments, AutoTokenizer, AutoModelForCausalLM
 from trl import DPOConfig,DPOTrainer
 
@@ -26,7 +27,12 @@ def train_dpo(config, peft_config):
 
     # step 2. 加载SFT模型
     model_train = AutoModelForCausalLM.from_pretrained(model_name)
+    state_dict = load_file(sft_lora_path)
+    model_train.load_state_dict(state_dict, strict=False)
+
     model_ref = AutoModelForCausalLM.from_pretrained(model_name)
+    state_dict = load_file(sft_lora_path)
+    model_ref.load_state_dict(state_dict, strict=False)
 
     train_dataset = get_dataset("/openbayes/home/opentest/data/train_chat_dataset.json")
     eval_dataset = get_dataset( "/openbayes/home/opentest/data/train_chat_dataset.json")

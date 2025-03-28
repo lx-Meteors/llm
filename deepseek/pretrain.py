@@ -40,7 +40,7 @@ print(train_dataset)
 data_collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
 
 training_args = TrainingArguments(
-    output_dir='./results',            # 保存模型的目录
+    output_dir='./pre_results',            # 保存模型的目录
     num_train_epochs=3,                # 训练轮数
     per_device_train_batch_size=1,     # 训练批次大小
     per_device_eval_batch_size=1,      # 验证批次大小

@@ -2,7 +2,8 @@ import numpy as np
 import torch
 from datasets import load_dataset
 from safetensors.torch import load_file
-from transformers import AutoTokenizer, TrainingArguments, AutoModelForCausalLM, Trainer
+from transformers import AutoTokenizer, TrainingArguments, AutoModelForCausalLM, Trainer, \
+    DataCollatorForLanguageModeling
 from peft import LoraConfig, get_peft_model
 
 
@@ -52,7 +53,7 @@ def tokenize_to_id(example: dict) -> dict:
 train_dataset = train_dataset["train"]
 train_dataset = train_dataset.map(tokenize_to_id, remove_columns=["boy","girl"])
 train_dataset = train_dataset.select(range(10000))
-print(train_dataset)
+
 def data_collator(features):
     len_ids = [len(feature["input_ids"]) for feature in features]
     input_ids = []
@@ -69,7 +70,6 @@ def data_collator(features):
         if len(labels) != len(ids):
             print()
     return {"input_ids": torch.stack(input_ids), "labels": torch.stack(labels_list)}
-
 
 training_args = TrainingArguments(
     output_dir='./sft_test_results',
@@ -101,9 +101,7 @@ deepseek = get_peft_model(deepseek, lora_config)
 
 # ✅ 修正 load_state_dict
 state_dict = load_file(args.pretrain_lora_path)
-missing_keys, unexpected_keys = deepseek.load_state_dict(state_dict, strict=False)
-print(f"Missing keys: {missing_keys}")
-print(f"Unexpected keys: {unexpected_keys}")
+deepseek.load_state_dict(state_dict, strict=False)
 
 deepseek.print_trainable_parameters()
 
