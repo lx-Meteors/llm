@@ -9,6 +9,7 @@ from tokenizers import (
 )
 import os
 
+random.seed(42)
 
 def train_tokenizer():
     # 读取jsonl文件并提取数据
@@ -133,6 +134,7 @@ def eval_tokenizer():
 
 
 def main():
+    print("tokenizer training started...")
     train_tokenizer()
     eval_tokenizer()
 
