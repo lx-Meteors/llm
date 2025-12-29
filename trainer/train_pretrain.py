@@ -1,12 +1,21 @@
 import argparse
 import os
 from contextlib import nullcontext
-from distutils import dist
+from logging import Logger
+
+import torch.distributed as dist
 
 import torch.cuda
 import wandb
+
+from torch import optim
+from torch.nn.parallel import DistributedDataParallel
+from torch.utils.data import DistributedSampler, DataLoader
+
+from datasets.pretrain_dataset import PretrainDataset
 from models.model_meteor import MeteorConfig
-from trainer.trainer_utils import init_distributed_mode, setup_seed, meteor_checkpoint, is_main_process, init_model
+from trainer.trainer_utils import init_distributed_mode, setup_seed, meteor_checkpoint, is_main_process, init_model, \
+    SkipBatchSampler
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Meteor-LLM Pretraining")
@@ -56,6 +65,77 @@ if __name__ == '__main__':
 
     # 5. 定义模型、数据、优化器
     model, tokenizer = init_model(meteor_config, args.from_weight, device=args.device)
+    # 加载数据、建立索引
+    train_dataset = PretrainDataset(args.data_path, tokenizer, args.max_seq_len)
+    # 对不同卡设置不同数据索引
+    train_sampler = DistributedSampler(train_dataset) if dist.is_initialized() else None
+    scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))
+    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
+
+    # 6. 从ckpt恢复状态
+    start_epoch, start_step = 0, 0
+    if ckp_data:
+        model.load_state_dict(ckp_data['model'])
+        optimizer.load_state_dict(ckp_data['optimizer'])
+        scaler.load_state_dict(ckp_data['scaler'])
+        start_epoch, start_step = ckp_data['epoch'], ckp_data['step']
+
+    # 7. DDP包模型
+    if dist.is_initialized():
+        model._ddp_params_and_buffers_to_ignore = {"freqs_cos", "freqs_sin"}
+        model = DistributedDataParallel(model, device_ids=[local_rank])
+
+    # 8. 开始训练
+    for epoch in range(start_epoch, args.epochs):
+        train_sampler and train_sampler.set_epoch(epoch)
+        # 第一个epoch且存在ckpt
+        if epoch == start_epoch and start_step > 0:
+            # 根据索引train_sampler进行划分batch_size，并跳过前start_step个batch数据
+            batch_sampler = SkipBatchSampler(train_sampler or range(len(train_dataset)), args.batch_size, start_step+1)
+            # loader得到的就是数据，DataLoader通过batch_sampler的索引去train_dataset拿数据
+            loader = DataLoader(train_dataset, batch_sampler=batch_sampler, num_workers=args.num_workers, pin_memory=True)
+            Logger(f'Epoch [{epoch + 1}/{args.epochs}]: 跳过前{start_step}个step，从step {start_step + 1}开始')
+            train_epoch(epoch, loader, len(loader) + start_step + 1, start_step, wandb)
+        else:
+            loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None), sampler=train_sampler, num_workers=args.num_workers, pin_memory=True)
+            train_epoch(epoch, loader, len(loader), 0, wandb)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
