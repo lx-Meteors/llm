@@ -46,9 +46,9 @@ def train_tokenizer():
     tokenizer.decoder = decoders.ByteLevel()
 
     # 检查特殊token索引
-    assert tokenizer.token_to_id("<endoftext>") == 0
-    assert tokenizer.token_to_id("<im_start>") == 1
-    assert tokenizer.token_to_id("<im_end>") == 2
+    assert tokenizer.token_to_id("<|endoftext|>") == 0
+    assert tokenizer.token_to_id("<|im_start|>") == 1
+    assert tokenizer.token_to_id("<|im_end|>") == 2
 
     # 保持tokenizer
     tokenizer_dir = "../models/"
@@ -63,7 +63,7 @@ def train_tokenizer():
         "add_prefix_space": False,
         "added_tokens_decoder": {
             "0": {
-                "content": "<endoftext>",
+                "content": "<|endoftext|>",
                 "lstrip": False,
                 "normalized": False,
                 "rstrip": False,
@@ -88,8 +88,8 @@ def train_tokenizer():
             }
         },
         "additional_special_tokens": [],
-        "bos_token": "<im_start>",
-        "eos_token": "<im_end>",
+        "bos_token": "<|im_start|>",
+        "eos_token": "<|im_end|>",
         "pad_token": "<|endoftext|>",
         "unk_token": "<|endoftext|>",
         "clean_up_tokenization_spaces": False,

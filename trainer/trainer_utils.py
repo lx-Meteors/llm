@@ -2,6 +2,7 @@ import os
 import random
 from logging import Logger
 
+import math
 import torch.distributed as dist
 
 import numpy as np
@@ -9,7 +10,9 @@ import torch
 from torch.utils.data import Sampler
 from transformers import AutoTokenizer
 
-from models.model_meteor import MeteorForCausalLM
+# from models.model_meteor import MeteorForCausalLM
+from test.ok import MiniMindForCausalLM as MeteorForCausalLM
+
 
 
 def is_main_process():
@@ -18,7 +21,7 @@ def is_main_process():
 
 def init_distributed_mode():
     # 单卡
-    if int(os.environ.get("RANK"), -1) == -1:
+    if int(os.environ.get("RANK", -1)) == -1:
         return 0
     # 多卡
     dist.init_process_group(backend="nccl")
@@ -37,11 +40,22 @@ def setup_seed(seed: int):
     torch.backends.cudnn.benchmark = False
 
 
+def get_learning_rate(current_step, total_steps, base_lr):
+    # 最小学习率偏置为 base_lr / 10
+    min_lr = base_lr / 10
+    # 余弦退火
+    cosine = 0.5 * base_lr * (1 + math.cos(math.pi * current_step / total_steps))
+    # 当前学习率
+    lr = min_lr + cosine
+    return lr
+
+
 def meteor_checkpoint(meteor_config, weight='full_sft', model=None, optimizer=None, epoch=0, step=0, wandb=None, save_dir='../checkpoints', **kwargs):
-    # todo: checkpoint
     os.makedirs(save_dir, exist_ok=True)
     moe_path = '_moe' if meteor_config.use_moe else ''
+    # 保存模型权重
     ckp_path = f'{save_dir}/{weight}_{meteor_config.hidden_size}{moe_path}.pth'
+    # 保存模型完整训练状态
     resume_path = f'{save_dir}/{weight}_{meteor_config.hidden_size}{moe_path}_resume.pth'
 
     if model is not None:
@@ -116,6 +130,7 @@ class SkipBatchSampler(Sampler):
     def __iter__(self):
         batch = []
         skipped = 0
+        # 这里其实跳过了start_step+1(skip_batches)个batch 因为skipped从0开始
         for idx in self.sampler:
             batch.append(idx)
             if len(batch) == self.batch_size:

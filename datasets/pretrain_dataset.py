@@ -26,7 +26,7 @@ class PretrainDataset(Dataset):
 
 
     def __getitem__(self, idx):
-        sample = self.samples[idx]
+        sample = self.samples[idx]['text']
         # 构建输入token
         encoding = self.tokenizer(
             sample,
