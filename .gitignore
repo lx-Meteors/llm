@@ -1,0 +1,5 @@
+dataset/**.jsonl
+**/__pycache__/
+trainer/wandb/**
+out/**
+checkpoints/**
