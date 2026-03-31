@@ -107,7 +107,7 @@ def main():
     parser.add_argument("--from_weight", type=str, default="none", help="基于哪个权重训练，为none则从头开始")
     parser.add_argument("--from_resume", type=int, default=0, choices=[0, 1], help="是否续训（0=否，1=是）")
     parser.add_argument("--use_wandb", type=int, default=1, choices=[0, 1], help="是否使用wandb（0=否，1=是）")
-    parser.add_argument("--wandb_project", type=str, default="Meteor-LLM Pretrain", help="wandb项目名")
+    parser.add_argument("--wandb_project", type=str, default="Meteor-LLM-Pretrain", help="wandb项目名")
     args = parser.parse_args()
 
     # 1. 初始化环境和随机种子
