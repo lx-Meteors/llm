@@ -99,3 +99,9 @@ torchrun --nproc_per_node=4 -m trainer.train_pretrain --epochs 1
 - 每次学习后在 `notes/learning_journal.md` 追加一条日志
 - 将稳定结论沉淀到阶段文档（如 `notes/stage_pretrain.md`）
 - 遇到实现疑问优先记录到 `notes/pretrain_tips_digest.md`，并逐条补全
+
+
+
+# 查看json文件数据
+
+head -n 2 data.json | jq .

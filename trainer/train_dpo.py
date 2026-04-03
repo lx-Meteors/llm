@@ -1,53 +1,93 @@
 import os
 import sys
+
+import wandb
+
+from dataset.dpo_dataset import DPODataset
 __package__ = "trainer"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from dataset.sft_dataset import SFTDataset
 import argparse
-import os
 import time
 import warnings
-from contextlib import nullcontext
-
+import torch
+import torch.nn.functional as F
 import torch.distributed as dist
-import torch.cuda
-import wandb
-from torch import optim, nn
+from contextlib import nullcontext
+from torch import optim
 from torch.nn.parallel import DistributedDataParallel
-from torch.utils.data import DistributedSampler, DataLoader
-
+from torch.utils.data import DataLoader, DistributedSampler
 from models.model_meteor import MeteorConfig
 from dataset.pretrain_dataset import PretrainDataset
-from trainer.trainer_utils import Logger, init_distributed_mode, setup_seed, meteor_checkpoint, is_main_process, init_model, \
-    SkipBatchSampler, get_learning_rate
+from trainer.trainer_utils import get_lr, Logger, is_main_process, lm_checkpoint, init_distributed_mode, meteor_checkpoint, setup_seed, init_model, SkipBatchSampler
 
 warnings.filterwarnings('ignore')
 
-def train_epoch(args, model, optimizer, autocast_ctx, scaler, meteor_config, epoch, loader, iters, start_step=0, wandb=None):
-    loss_fct = nn.CrossEntropyLoss(reduction='none')
+def logits_to_log_probs(logits, labels):
+    # logits shape: (batch_size, seq_len, vocab_size)
+    # labels shape: (batch_size, seq_len)
+    # log_probs shape: (batch_size, seq_len)
+    log_probs = F.log_softmax(logits, dim=2)
+    log_probs_per_token = torch.gather(log_probs, dim=2, index=labels.unsqueeze(2)).squeeze(-1)
+    return log_probs_per_token
+
+
+def dpo_loss(ref_log_probs, policy_log_probs, mask, beta):
+    # ref_log_probs 和 policy_log_probs 都是 shape: (batch_size, seq_len)
+    seq_lengths = mask.sum(dim=1, keepdim=True).clamp_min(1e-8)
+    ref_log_probs = (ref_log_probs * mask).sum(dim=1) / seq_lengths.squeeze()
+    policy_log_probs = (policy_log_probs * mask).sum(dim=1) / seq_lengths.squeeze()
+
+    # 将chosen和rejected数据分开
+    batch_size = ref_log_probs.shape[0]
+    chosen_ref_log_probs = ref_log_probs[:batch_size // 2]
+    rejected_ref_log_probs = ref_log_probs[batch_size // 2:]
+    chosen_policy_log_probs = policy_log_probs[:batch_size // 2]
+    rejected_policy_log_probs = policy_log_probs[batch_size // 2:]
+
+    pi_logratios = chosen_policy_log_probs - rejected_policy_log_probs
+    ref_logratios = chosen_ref_log_probs - rejected_ref_log_probs
+    logits = pi_logratios - ref_logratios
+    loss = -F.logsigmoid(beta * logits)
+    # 将chosen
+    return loss.mean()
+
+
+def train_epoch(args, model, optimizer, ref_model, autocast_ctx, scaler, meteor_config, epoch, loader, iters, start_step=0, wandb=None, beta=0.1):
     start_time = time.time()
 
-    for step, (input_ids, labels, loss_mask) in enumerate(loader, start=start_step+1):
+    for step, batch in enumerate(loader, start=start_step+1):
         # 输入数据
-        input_ids = input_ids.to(args.device)
-        labels = labels.to(args.device)
-        loss_mask = loss_mask.to(args.device)
-        # 学习率
-        learning_rate = get_learning_rate(epoch * iters + step, args.epochs * iters, args.learning_rate)
-        # 动态更新优化器的学习率
+        x_chosen = batch['x_chosen'].to(args.device)
+        x_rejected = batch['x_rejected'].to(args.device)
+        y_chosen = batch['y_chosen'].to(args.device)
+        y_rejected = batch['y_rejected'].to(args.device)
+        mask_chosen = batch['mask_chosen'].to(args.device)
+        mask_rejected = batch['mask_rejected'].to(args.device)
+        x = torch.cat([x_chosen, x_rejected], dim=0)
+        y = torch.cat([y_chosen, y_rejected], dim=0)
+        mask = torch.cat([mask_chosen, mask_rejected], dim=0)
+
+        lr = get_lr(epoch * iters + step, args.epochs * iters, args.learning_rate)
         for param_group in optimizer.param_groups:
-            param_group['lr'] = learning_rate
+            param_group['lr'] = lr
+        
         with autocast_ctx:
-            output = model(input_ids)
-            # [batch_size, seq_len, vocab_size] -> [batch_size*seq_len, vocab_size]
-            logits = output.logits.view(-1, output.logits.size(-1))
-            loss = loss_fct(logits, labels.view(-1)).view(labels.size())
-            # 移除屏蔽的lables并且计算loss总和(这里的loss_mask很不优雅)
-            loss = (loss * loss_mask).sum() / loss_mask.sum()
-            # loss += output.aux_loss
+            with torch.no_grad():
+                ref_output = ref_model(x)
+                ref_logits = ref_output.logits
+            ref_log_probs = logits_to_log_probs(ref_logits, y)
+
+            outputs = model(x)
+            logits = outputs.logits
+            policy_log_probs = logits_to_log_probs(logits, y)
+
+            loss = dpo_loss(policy_log_probs, ref_log_probs, mask, beta)
             loss = loss / args.gradient_accumulation_steps
         scaler.scale(loss).backward()
+
+
+
 
         if (step + 1) % args.gradient_accumulation_steps == 0:
             scaler.unscale_(optimizer)
@@ -81,18 +121,18 @@ def train_epoch(args, model, optimizer, autocast_ctx, scaler, meteor_config, epo
             meteor_checkpoint(meteor_config, weight=args.save_weight, model=model, optimizer=optimizer, scaler=scaler, epoch=epoch, step=step, wandb=wandb, save_dir='../checkpoints')
             model.train()
 
-        del input_ids, labels, loss_mask, output, loss
-
+        del x_chosen, x_rejected, y_chosen, y_rejected, mask_chosen, mask_rejected, x, y, mask
+        del ref_outputs, ref_logits, ref_log_probs, outputs, logits, policy_log_probs, loss
 
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Meteor-LLM-Full-SFT")
+    parser = argparse.ArgumentParser(description="Meteor-LLM DPO")
     parser.add_argument("--save_dir", type=str, default="../out", help="模型保持目录")
-    parser.add_argument("--save_weight", default="full_sft", help="保存权重的前缀名")
-    parser.add_argument("--epochs", type=int, default=2, help="训练轮数")
-    parser.add_argument("--batch_size", type=int, default=32, help="批处理大小")
-    parser.add_argument("--learning_rate", type=float, default=5e-7, help="初始学习率")
+    parser.add_argument("--save_weight", default="dpo", help="保存权重的前缀名")
+    parser.add_argument("--epochs", type=int, default=1, help="训练轮数")
+    parser.add_argument("--batch_size", type=int, default=4, help="批处理大小")
+    parser.add_argument("--learning_rate", type=float, default=4e-8, help="初始学习率")
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu", help="训练设备")
     parser.add_argument("--dtype", type=str, default="bfloat16", help="混合精度类型")
     parser.add_argument("--num_workers", type=int, default=1, help="数据加载线程数")
@@ -107,11 +147,12 @@ def main():
     parser.add_argument("--data_path", type=str, default="../dataset/sft_mini_512.jsonl", help="训练数据路径")
     parser.add_argument("--from_weight", type=str, default="pretrain", help="基于哪个权重训练，为none则从头开始")
     parser.add_argument("--from_resume", type=int, default=0, choices=[0, 1], help="是否续训（0=否，1=是）")
+    parser.add_argument('--beta', default=0.1, type=float, help="DPO中的beta参数")
     parser.add_argument("--use_wandb", type=int, default=1, choices=[0, 1], help="是否使用wandb（0=否，1=是）")
     parser.add_argument("--wandb_project", type=str, default="Meteor-Full-SFT", help="wandb项目名")
     args = parser.parse_args()
 
-    # 1. 初始化环境和随机种子
+     # 1. 初始化环境和随机种子
     local_rank = init_distributed_mode()
     if dist.is_initialized(): args.device = f"cuda:{local_rank}"
     setup_seed(42 + (dist.get_rank() if dist.is_initialized() else 0))
@@ -136,8 +177,15 @@ def main():
 
     # 5. 定义模型、数据、优化器
     model, tokenizer = init_model(meteor_config, args.from_weight, device=args.device)
+    Logger(f'策略模型总参数量：{sum(p.numel() for p in model.parameters()) / 1e6:.3f} M')
+    # 初始化参考模型(ref_model冻结)
+    ref_model, _ = init_model(meteor_config, args.from_weight, device=args.device)
+    ref_model.eval()
+    ref_model.requires_grad_(False)
+    Logger(f'参考模型总参数量：{sum(p.numel() for p in ref_model.parameters()) / 1e6:.3f} M')
+
     # 加载数据、建立索引
-    train_dataset = SFTDataset(args.data_path, tokenizer, args.max_seq_len)
+    train_dataset = DPODataset(args.data_path, tokenizer, args.max_seq_len)
     # 对不同卡设置不同数据索引
     train_sampler = DistributedSampler(train_dataset) if dist.is_initialized() else None
     scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))
@@ -166,11 +214,10 @@ def main():
             # loader得到的就是数据，DataLoader通过batch_sampler的索引去train_dataset拿数据
             loader = DataLoader(train_dataset, batch_sampler=batch_sampler, num_workers=args.num_workers, pin_memory=True)
             Logger(f'Epoch [{epoch + 1}/{args.epochs}]: 跳过前{start_step}个step，从step {start_step + 1}开始')
-            train_epoch(args, model, optimizer, autocast_ctx, scaler, meteor_config, epoch, loader, len(loader) + start_step + 1, start_step, wandb)
+            train_epoch(args, model, optimizer, ref_model, autocast_ctx, scaler, meteor_config, epoch, loader, len(loader) + start_step + 1, start_step, wandb, args.beta)
         else:
             loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None), sampler=train_sampler, num_workers=args.num_workers, pin_memory=True)
-            train_epoch(args, model, optimizer, autocast_ctx, scaler, meteor_config, epoch, loader, len(loader), 0, wandb)
+            train_epoch(args, model, optimizer, ref_model, autocast_ctx, scaler, meteor_config, epoch, loader, len(loader), 0, wandb, args.beta)
 
 if __name__ == '__main__':
     main()
-
