@@ -18,6 +18,11 @@ def is_main_process():
     return not dist.is_initialized() or dist.get_rank() == 0
 
 
+def Logger(content):
+    if is_main_process():
+        print(content)
+
+
 def init_distributed_mode():
     # 单卡
     if int(os.environ.get("RANK", -1)) == -1:

@@ -81,7 +81,7 @@ python -m trainer.train_pretrain \
 多卡可使用：
 
 ```bash
-torchrun --nproc_per_node=2 -m trainer.train_pretrain --epochs 1
+torchrun --nproc_per_node=4 -m trainer.train_pretrain --epochs 1
 ```
 
 ## 训练产物

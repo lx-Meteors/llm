@@ -8,7 +8,6 @@ import os
 import time
 import warnings
 from contextlib import nullcontext
-from logging import Logger
 import torch.distributed as dist
 import torch.cuda
 import wandb
@@ -18,7 +17,7 @@ from torch.utils.data import DistributedSampler, DataLoader
 
 from models.model_meteor import MeteorConfig
 from dataset.pretrain_dataset import PretrainDataset
-from trainer.trainer_utils import init_distributed_mode, setup_seed, meteor_checkpoint, is_main_process, init_model, \
+from trainer.trainer_utils import Logger, init_distributed_mode, setup_seed, meteor_checkpoint, is_main_process, init_model, \
     SkipBatchSampler, get_learning_rate
 
 warnings.filterwarnings('ignore')
@@ -63,9 +62,9 @@ def train_epoch(args, model, optimizer, autocast_ctx, scaler, meteor_config, epo
             current_loss = loss.item() * args.gradient_accumulation_steps
             current_lr = optimizer.param_groups[-1]['lr']
             eta_min = spend_time / (step + 1) * iters // 60 - spend_time // 60
-            Logger(f'Epoch:[{epoch + 1}/{args.epochs}]({step}/{iters}) loss:{current_loss:.6f} lr:{current_lr:.12f} epoch_Time:{eta_min}min:')
+            Logger(f'Epoch:[{epoch + 1}/{args.epochs}]({step}/{iters}) loss:{current_loss:.6f} lr:{current_lr:.12f} epoch_Time:{eta_min} ')
 
-            if wandb: wandb.log({"loss": current_loss, "lr": current_lr, "epoch_Time": eta_min})
+            if wandb.run is not None: wandb.log({"loss": current_loss, "lr": current_lr, "epoch_Time": eta_min})
 
         if (step % args.save_interval == 0 or step == iters - 1) and is_main_process():
             model.eval()
@@ -89,7 +88,7 @@ def main():
     parser = argparse.ArgumentParser(description="Meteor-LLM Pretraining")
     parser.add_argument("--save_dir", type=str, default="../out", help="模型保持目录")
     parser.add_argument("--save_weight", default="pretrain", help="保存权重的前缀名")
-    parser.add_argument("--epochs", type=int, default=1, help="训练轮数")
+    parser.add_argument("--epochs", type=int, default=9, help="训练轮数")
     parser.add_argument("--batch_size", type=int, default=32, help="批处理大小")
     parser.add_argument("--learning_rate", type=float, default=1e-4, help="初始学习率")
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu", help="训练设备")
@@ -105,7 +104,7 @@ def main():
     parser.add_argument("--use_moe", type=int, default=0, choices=[0, 1], help="是否使用MoE架构（0=否，1=是）")
     parser.add_argument("--data_path", type=str, default="../dataset/pretrain_hq.jsonl", help="预训练数据路径")
     parser.add_argument("--from_weight", type=str, default="none", help="基于哪个权重训练，为none则从头开始")
-    parser.add_argument("--from_resume", type=int, default=0, choices=[0, 1], help="是否续训（0=否，1=是）")
+    parser.add_argument("--from_resume", type=int, default=1, choices=[0, 1], help="是否续训（0=否，1=是）")
     parser.add_argument("--use_wandb", type=int, default=1, choices=[0, 1], help="是否使用wandb（0=否，1=是）")
     parser.add_argument("--wandb_project", type=str, default="Meteor-LLM-Pretrain", help="wandb项目名")
     args = parser.parse_args()

@@ -135,7 +135,7 @@ def eval_tokenizer():
 
 def main():
     print("tokenizer training started...")
-    train_tokenizer()
+    # train_tokenizer()
     eval_tokenizer()
 
 
