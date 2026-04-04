@@ -49,7 +49,6 @@ def dpo_loss(ref_log_probs, policy_log_probs, mask, beta):
     ref_logratios = chosen_ref_log_probs - rejected_ref_log_probs
     logits = pi_logratios - ref_logratios
     loss = -F.logsigmoid(beta * logits)
-    # 将chosen
     return loss.mean()
 
 
