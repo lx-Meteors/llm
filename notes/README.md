@@ -2,6 +2,7 @@
 
 This folder stores a structured learning record for the full LLM training pipeline:
 
+- Main handbook: `MeteorMind_全流程学习手册.md`
 - Pretrain
 - SFT
 - Alignment and preference optimization (PPO, DPO, GRPO)
@@ -14,9 +15,11 @@ This folder stores a structured learning record for the full LLM training pipeli
    - `stage_pretrain.md`
    - `stage_sft.md`
    - `stage_alignment_rl.md`
-3. For code-level questions and implementation Tips, maintain:
+3. Read the end-to-end handbook first if you are new:
+   - `MeteorMind_全流程学习手册.md`
+4. For code-level questions and implementation Tips, maintain:
    - `pretrain_tips_digest.md`
-4. Keep each note with:
+5. Keep each note with:
    - Concept
    - Why it matters
    - Implementation in this repo
